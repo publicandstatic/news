@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Новини</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            line-height: 1.2;
+            background-color: #37474f;
+            color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            margin: 0;
+        }
+
+        .news-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr); /* Три плитки по ширині */
+            gap: 15px;
+            width: 100%; /* Заповнює всю ширину екрану */
+            height: 100vh; /* Плитки заповнюють всю висоту екрану */
+            padding: 20px 15px; /* Додаємо внутрішні відступи, щоб плитки не прилипали до країв */
+            align-items: center; /* Центруємо плитки по вертикалі */
+        }
+
+        .news-item {
+            background: #151d1f;
+            padding: 20px;
+            transition: box-shadow .25s, -webkit-box-shadow .25s;
+            border-radius: 2px;
+            box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 3px 1px -2px rgba(0, 0, 0, 0.12), 0 1px 5px 0 rgba(0, 0, 0, 0.2);
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            opacity: 0;
+            transform: scale(0.95);
+            overflow: hidden;
+            height: 100%; /* Плитки заповнюють всю висоту */
+        }
+
+        .news-item.active {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .news-date {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+
+        .news-views {
+            font-size: 18px;
+            color: #B0B0B0;
+            margin-bottom: 10px;
+        }
+
+        .news-content {
+            font-size: 20px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            height: auto; /* Автоматична висота контенту */
+            margin-bottom: 10px;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            margin-top: 10px;
+            object-fit: contain;
+            border-radius: 2px;
+            box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 3px 1px -2px rgba(0, 0, 0, 0.12), 0 1px 5px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        video {
+            max-width: 100%;
+            height: auto;
+            margin-top: 10px;
+            object-fit: contain;
+
+        }
+
+        frame {
+            border-radius: 2px;
+            box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 3px 1px -2px rgba(0, 0, 0, 0.12), 0 1px 5px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        a {
+            color: #03DAC6;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .textcolor-yesterday{
+            color: #bbdefb;
+        }
+        .textcolor-today {
+            color: #B0B0B0;
+        }
+        .textcolor-now {
+            color: #ffe0b2;
+        }
+    </style>
+</head>
+<body>
+<div class="news-container" id="news-container">
+    <div class="news-item" id="news-item-1"></div>
+    <div class="news-item" id="news-item-2"></div>
+    <div class="news-item" id="news-item-3"></div>
+</div>
+<script>
+    let newsData = [];
+    let visibleNews = []; // Масив видимих новин
+    let newsTimers = []; // Таймери для кожної новини
+    let currentIndex = 3; // Починаємо з 4-ї новини
+
+    // Завантаження JSON з новинами
+    async function loadNews() {
+        try {
+            const responses = await Promise.all([
+                fetch('telegram_posts.json'),
+                fetch('youtube_videos.json') // Другий JSON-файл
+            ]);
+
+            // Парсимо обидва файли
+            const [newsData1, newsData2] = await Promise.all(responses.map(res => res.json()));
+
+            // Об'єднуємо масиви новин
+            newsData = [...newsData1, ...newsData2];
+            const forbiddenStrings = ["twitch.tv/PlayUA"];
+
+            // Фільтруємо новини
+            newsData = newsData.filter(news => {
+                return !forbiddenStrings.some(forbidden => news.text.includes(forbidden));
+            });
+
+            newsData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            console.log("📥 Завантажено новини:", newsData);
+
+            if (newsData.length > 0) {
+                initializeNewsTiles();
+            }
+        } catch (error) {
+            console.error("❌ Помилка завантаження JSON:", error);
+        }
+    }
+
+    // Ініціалізація перших трьох новин
+    function initializeNewsTiles() {
+        const newsItems = document.querySelectorAll(".news-item");
+
+        for (let i = 0; i < 3; i++) {
+            if (i < newsData.length) {
+                visibleNews[i] = newsData[i];
+                updateNewsTile(newsItems[i], newsData[i]);
+                startReplacementTimer(i); // Запускаємо індивідуальний таймер для кожної новини
+            }
+        }
+    }
+
+    function getNewsTimeCategory(newsDate) {
+        const now = new Date();
+        const newsTime = new Date(newsDate);
+
+        const timeDifference = now - newsTime; // Різниця у мілісекундах
+        const hoursDifference = timeDifference / (1000 * 60 * 60); // У годинах
+
+        // Якщо новина була впродовж останніх 3 годин
+        if (hoursDifference <= 3) {
+            return "textcolor-now";
+        }
+
+        // Отримуємо дату сьогодні та вчора (без часу)
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+
+        if (newsTime >= today) {
+            return "textcolor-today";
+        }
+
+        return "textcolor-yesterday";
+    }
+
+    // Оновлення вмісту плитки
+    function updateNewsTile(tile, news) {
+        let formattedText = convertYouTubeLinks(news.text);
+        let dateClass = getNewsTimeCategory(news.date);
+        tile.innerHTML = `
+        <p class="news-date ${dateClass}">📅 <b>${news.date}</b> | <b>${news.channel}</b></p>
+        <div class="news-content">${formattedText}</div>
+    `;
+
+        tile.classList.add("active");
+    }
+
+    // Функція для підрахунку часу показу новини
+    function calculateDisplayTime(news) {
+        let minTime = 30000; // Мінімум 30 секунд
+        let additionalTime = 0;
+
+        if (news.videos && news.videos.length > 0) {
+            additionalTime += 30000;
+        } else if (convertYouTubeLinks(news.text) != news.text) {
+            additionalTime += 120000;
+        }
+
+        let tempDiv = document.createElement("div");
+        tempDiv.innerHTML = news.text;
+
+        tempDiv.querySelectorAll("img").forEach(img => img.remove());
+        let cleanText = tempDiv.textContent.trim();
+        let textLength = cleanText.length;
+
+        if (textLength > 300) {
+            additionalTime += Math.floor((textLength - 300) / 10) * 1000;
+        }
+
+        return minTime + additionalTime;
+    }
+
+    // Запускає таймер для певної новини (індекс у `visibleNews`)
+    function startReplacementTimer(newsIndex) {
+        let displayTime = calculateDisplayTime(visibleNews[newsIndex]);
+
+        console.log(`⏳ Новина ${newsIndex + 1} буде змінена через ${displayTime / 1000} секунд`);
+
+        newsTimers[newsIndex] = setTimeout(() => {
+            if (currentIndex >= newsData.length) {
+                location.reload()
+            } else {
+                replaceNews(newsIndex);
+            }
+        }, displayTime);
+    }
+
+    // Замінює новину на нову (замість найстарішої)
+    function replaceNews(newsIndex) {
+        if (currentIndex >= newsData.length) {
+            console.log("🔄 Досягнуто кінця списку новин, починаємо знову.");
+            currentIndex = 0;
+        }
+
+        console.log(`🔄 Заміна ${newsIndex + 1}-ї новини на ${currentIndex + 1}-у`);
+
+        const newsItems = document.querySelectorAll(".news-item");
+        visibleNews[newsIndex] = newsData[currentIndex];
+        updateNewsTile(newsItems[newsIndex], newsData[currentIndex]);
+
+        currentIndex++;
+
+        // Перезапускаємо таймер для цієї новини
+        startReplacementTimer(newsIndex);
+    }
+
+    // Автовідтворення відео при появі на екрані
+    function autoPlayVideos() {
+        const videos = document.querySelectorAll(".news-video");
+
+        videos.forEach(video => {
+            if (!video || video.readyState < 3) return;
+
+            const rect = video.getBoundingClientRect();
+            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+
+            if (isVisible && video.paused) {
+                video.play().catch(error => console.log("Автостарт відео не підтримується:", error));
+            } else if (!isVisible && !video.paused) {
+                video.pause();
+            }
+        });
+    }
+
+    function convertYouTubeLinks(text) {
+        const youtubeAnchorRegex = /<a href=["']?(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)(?:\?.*?)?)["']?>(.*?)<\/a>/gi;
+        const youtubePlainRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)(?:\?.*?)?/g;
+
+        let videos = []; // Масив для збереження знайдених відео
+
+        // 1️⃣ Видаляємо <a href="...">, залишаємо лише текст
+        text = text.replace(youtubeAnchorRegex, (match, url, videoId, linkText) => {
+            videos.push(videoId); // Зберігаємо ID відео
+            return `${linkText}`; // Лишаємо тільки текст посилання
+        });
+
+        let start = getRandomNumber(0, 300); // Випадковий старт відео
+
+        // 2️⃣ Замінюємо звичайні посилання на YouTube відео
+        text = text.replace(youtubePlainRegex, (match, videoId) => {
+            return `
+            <br>
+            <a href="https://www.youtube.com/watch?v=${videoId}" target="_blank">https://www.youtube.com/watch?v=${videoId}</a>
+            <br>
+            <iframe class="youtube-video"
+                    width="100%"
+                    height="325"
+                    src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&start=${start}"
+                    frameborder="0"
+                    allow="autoplay; encrypted-media"
+                    allowfullscreen>
+            </iframe>
+        `;
+        });
+
+        // 3️⃣ Додаємо всі знайдені відео в кінець тексту
+        if (videos.length > 0) {
+            text += videos.map(videoId => `
+            <br>
+            <a href="https://www.youtube.com/watch?v=${videoId}" target="_blank">https://www.youtube.com/watch?v=${videoId}</a>
+            <br>
+            <iframe class="youtube-video"
+                    width="100%"
+                    height="325"
+                    src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&start=${start}"
+                    frameborder="0"
+                    allow="autoplay; encrypted-media"
+                    allowfullscreen>
+            </iframe>
+        `).join('');
+        }
+
+        return text;
+    }
+
+    // Функція для випадкового числа в діапазоні (випадковий старт відео)
+    function getRandomNumber(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+
+
+    // Запускаємо перевірку під час скролу
+    document.addEventListener("scroll", autoPlayVideos);
+    window.addEventListener("resize", autoPlayVideos);
+    window.addEventListener("load", autoPlayVideos);
+
+    // Завантажуємо новини при старті
+    loadNews();
+</script>
+</body>
+</html>
